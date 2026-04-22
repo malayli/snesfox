@@ -37,6 +37,13 @@ private:
     bool m_nmiEnabled = false;
     mutable bool m_nmiFlag = false;
 
+    // V/H counters
+    uint16_t m_hCounter   = 0;
+    uint16_t m_vCounter   = 0;
+    uint64_t m_lastCycles = 0;
+    uint64_t m_cycleAccum = 0;
+    mutable bool m_hvcLatch = false;
+
     // Hardware multiply/divide unit
     uint8_t  m_wrmpya = 0xFF;
     uint16_t m_wrdiv  = 0xFFFF;

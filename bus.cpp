@@ -19,8 +19,25 @@ void Bus::reset() {
     m_apu.reset();
 }
 
+static constexpr uint64_t CYCLES_PER_SCANLINE = 114; // ~30000 / 262
+static constexpr uint16_t H_TOTAL   = 340;
+static constexpr uint16_t V_TOTAL   = 262;
+static constexpr uint16_t VBLANK_START = 225;
+
 void Bus::stepPeripherals(uint64_t totalCycles) {
-    (void)totalCycles;
+    const uint64_t delta = totalCycles - m_lastCycles;
+    m_lastCycles = totalCycles;
+
+    m_cycleAccum += delta;
+    while (m_cycleAccum >= CYCLES_PER_SCANLINE) {
+        m_cycleAccum -= CYCLES_PER_SCANLINE;
+        m_vCounter++;
+        if (m_vCounter >= V_TOTAL) {
+            m_vCounter = 0;
+        }
+    }
+    m_hCounter = static_cast<uint16_t>((m_cycleAccum * H_TOTAL) / CYCLES_PER_SCANLINE);
+
     m_apu.step();
 }
 
@@ -71,6 +88,20 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return 0x00;
     }
 
+    // V/H counter latch reads ($213C OPHCT, $213D OPVCT)
+    if (addr == 0x213C) {
+        const uint8_t result = m_hvcLatch ? static_cast<uint8_t>(m_hCounter >> 8) : static_cast<uint8_t>(m_hCounter & 0xFF);
+        m_hvcLatch = !m_hvcLatch;
+        return result;
+    }
+    if (addr == 0x213D) {
+        const uint8_t result = m_hvcLatch ? static_cast<uint8_t>(m_vCounter >> 8) : static_cast<uint8_t>(m_vCounter & 0xFF);
+        m_hvcLatch = !m_hvcLatch;
+        return result;
+    }
+    if (addr == 0x213E) return 0x01;
+    if (addr == 0x213F) { m_hvcLatch = false; return 0x02; }
+
     // NMI flag — bit 7 set at VBlank, cleared on read; bits 3:0 = CPU version (2)
     if (addr == 0x4210) {
         const uint8_t result = (m_nmiFlag ? 0x80 : 0x00) | 0x02;
@@ -78,9 +109,12 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return result;
     }
 
-    // VBlank / HVBJOY status
+    // HVBJOY — bit 7 = VBlank, bit 6 = HBlank, bit 0 = auto-joypad busy
     if (addr == 0x4212) {
-        return 0x80;
+        uint8_t status = 0x00;
+        if (m_vCounter >= VBLANK_START) status |= 0x80;
+        if (m_hCounter >= 274)          status |= 0x40;
+        return status;
     }
 
     // Joypad registers
