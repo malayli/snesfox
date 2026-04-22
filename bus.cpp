@@ -88,6 +88,12 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return 0x00;
     }
 
+    // Multiply/divide result registers
+    if (addr == 0x4214) return static_cast<uint8_t>(m_rddiv & 0xFF);
+    if (addr == 0x4215) return static_cast<uint8_t>(m_rddiv >> 8);
+    if (addr == 0x4216) return static_cast<uint8_t>(m_rdmpy & 0xFF);
+    if (addr == 0x4217) return static_cast<uint8_t>(m_rdmpy >> 8);
+
     // ------------------------------------------------------------
     // LoROM ROM area
     // ------------------------------------------------------------
@@ -138,6 +144,28 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     // ------------------------------------------------------------
     if (addr == 0x4200) {
         m_nmiEnabled = (value >> 7) & 1;
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // Hardware multiply/divide unit
+    // ------------------------------------------------------------
+    if (addr == 0x4202) { m_wrmpya = value; return; }
+    if (addr == 0x4203) {
+        m_rdmpy = static_cast<uint16_t>(m_wrmpya) * static_cast<uint16_t>(value);
+        m_rddiv = 0;
+        return;
+    }
+    if (addr == 0x4204) { m_wrdiv = (m_wrdiv & 0xFF00) | value; return; }
+    if (addr == 0x4205) { m_wrdiv = (m_wrdiv & 0x00FF) | (static_cast<uint16_t>(value) << 8); return; }
+    if (addr == 0x4206) {
+        if (value == 0) {
+            m_rddiv = 0xFFFF;
+            m_rdmpy = m_wrdiv;
+        } else {
+            m_rddiv = m_wrdiv / value;
+            m_rdmpy = m_wrdiv % value;
+        }
         return;
     }
 

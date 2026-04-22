@@ -37,6 +37,12 @@ private:
     bool m_nmiEnabled = false;
     mutable bool m_nmiFlag = false;
 
+    // Hardware multiply/divide unit
+    uint8_t  m_wrmpya = 0xFF;
+    uint16_t m_wrdiv  = 0xFFFF;
+    uint16_t m_rddiv  = 0;
+    uint16_t m_rdmpy  = 0;
+
     bool isLoRomArea(uint8_t bank, uint16_t addr) const;
     uint32_t loRomToFileOffset(uint8_t bank, uint16_t addr) const;
 };
