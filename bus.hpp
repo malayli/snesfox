@@ -12,16 +12,14 @@ public:
     explicit Bus(const std::vector<uint8_t>& rom);
 
     void reset();
-    void stepPeripherals(uint64_t totalCycles);
+    // Returns true when VBlank starts and NMI should be delivered
+    bool stepPeripherals(uint64_t totalCycles);
 
     uint8_t read(uint8_t bank, uint16_t addr) const;
     void write(uint8_t bank, uint16_t addr, uint8_t value);
 
     RomMapping mapMode() const;
     size_t sramBytes() const;
-
-    // Called once per frame at VBlank start; sets NMI flag and returns true if NMI is enabled
-    bool onVBlank();
 
 private:
     const std::vector<uint8_t>& m_rom;
@@ -43,6 +41,7 @@ private:
     uint64_t m_lastCycles = 0;
     uint64_t m_cycleAccum = 0;
     mutable bool m_hvcLatch = false;
+    bool m_inVBlank = false;
 
     // Hardware multiply/divide unit
     uint8_t  m_wrmpya = 0xFF;

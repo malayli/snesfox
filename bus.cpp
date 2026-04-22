@@ -24,7 +24,7 @@ static constexpr uint16_t H_TOTAL   = 340;
 static constexpr uint16_t V_TOTAL   = 262;
 static constexpr uint16_t VBLANK_START = 225;
 
-void Bus::stepPeripherals(uint64_t totalCycles) {
+bool Bus::stepPeripherals(uint64_t totalCycles) {
     const uint64_t delta = totalCycles - m_lastCycles;
     m_lastCycles = totalCycles;
 
@@ -38,16 +38,25 @@ void Bus::stepPeripherals(uint64_t totalCycles) {
     }
     m_hCounter = static_cast<uint16_t>((m_cycleAccum * H_TOTAL) / CYCLES_PER_SCANLINE);
 
+    const bool nowVBlank = (m_vCounter >= VBLANK_START);
+    const bool vBlankEdge = nowVBlank && !m_inVBlank;
+    m_inVBlank = nowVBlank;
+
+    if (vBlankEdge) {
+        m_nmiFlag = true;
+        if (m_nmiEnabled) {
+            m_apu.step();
+            return true;
+        }
+    }
+
     m_apu.step();
+    return false;
 }
 
 RomMapping Bus::mapMode() const { return m_mapMode; }
 size_t Bus::sramBytes() const { return m_sramBytes; }
 
-bool Bus::onVBlank() {
-    m_nmiFlag = true;
-    return m_nmiEnabled;
-}
 
 bool Bus::isLoRomArea(uint8_t bank, uint16_t addr) const {
     (void)bank;
