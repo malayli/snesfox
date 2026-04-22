@@ -235,13 +235,17 @@ int runCov(const std::string& romPath, const std::string& covPath, uint64_t fram
             hit.insert(cpu.pc24());
 
             cpu.step(bus);
-            bus.stepPeripherals();
+            bus.stepPeripherals(cpu.cycles());
 
             ++steps;
             if (steps >= COV_MAX_STEPS) {
                 stopped = true;
                 break;
             }
+        }
+
+        if (bus.onVBlank()) {
+            cpu.triggerNmi(bus);
         }
     }
 
@@ -317,7 +321,7 @@ int runEmu(const std::string& romPath) {
                 const uint32_t pcBefore = cpu.pc24();
 
                 cpu.step(bus);
-                bus.stepPeripherals();
+                bus.stepPeripherals(cpu.cycles());
 
                 if (!instructionLog.empty() && instructionLog.front().rfind("> ", 0) == 0) {
                     instructionLog.front().replace(0, 2, "  ");
@@ -328,12 +332,16 @@ int runEmu(const std::string& romPath) {
                     instructionLog.pop_back();
                 }
             }
+
+            if (bus.onVBlank()) {
+                cpu.triggerNmi(bus);
+            }
         } else if (stepOnce) {
             stepOnce = false;
 
             const uint32_t pcBefore = cpu.pc24();
             cpu.step(bus);
-            bus.stepPeripherals();
+            bus.stepPeripherals(cpu.cycles());
 
             if (!instructionLog.empty() && instructionLog.front().rfind("> ", 0) == 0) {
                 instructionLog.front().replace(0, 2, "  ");

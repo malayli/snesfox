@@ -7,6 +7,8 @@ public:
     CPU() = default;
     void reset(const Bus& bus, uint16_t resetVector);
     void step(Bus& bus);
+    void triggerNmi(Bus& bus);
+    void triggerIrq(Bus& bus);
     uint16_t resetVector() const;
     uint8_t bank() const;
     uint16_t pc() const;

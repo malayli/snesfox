@@ -2,6 +2,15 @@
 
 Bus::Bus(const std::vector<uint8_t>& rom)
     : m_rom(rom) {
+    m_mapMode = HeaderParser::detect(m_rom);
+
+    const size_t sramOffset = (m_mapMode == RomMapping::HiROM) ? 0xFFD8 : 0x7FD8;
+    if (sramOffset < m_rom.size()) {
+        static const size_t kSramTable[] = { 0, 2*1024, 8*1024, 32*1024, 128*1024 };
+        const uint8_t raw = m_rom[sramOffset];
+        m_sramBytes = (raw < 5) ? kSramTable[raw] : 0;
+    }
+
     reset();
 }
 
@@ -10,8 +19,17 @@ void Bus::reset() {
     m_apu.reset();
 }
 
-void Bus::stepPeripherals() {
+void Bus::stepPeripherals(uint64_t totalCycles) {
+    (void)totalCycles;
     m_apu.step();
+}
+
+RomMapping Bus::mapMode() const { return m_mapMode; }
+size_t Bus::sramBytes() const { return m_sramBytes; }
+
+bool Bus::onVBlank() {
+    m_nmiFlag = true;
+    return m_nmiEnabled;
 }
 
 bool Bus::isLoRomArea(uint8_t bank, uint16_t addr) const {
@@ -53,9 +71,11 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return 0x00;
     }
 
-    // NMI register
+    // NMI flag — bit 7 set at VBlank, cleared on read; bits 3:0 = CPU version (2)
     if (addr == 0x4210) {
-        return 0x80;
+        const uint8_t result = (m_nmiFlag ? 0x80 : 0x00) | 0x02;
+        m_nmiFlag = false;
+        return result;
     }
 
     // VBlank / HVBJOY status
@@ -110,6 +130,14 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     if (((bank <= 0x3F) || (bank >= 0x80 && bank <= 0xBF)) &&
         addr >= 0x2140 && addr <= 0x2143) {
         m_apu.writePort(addr, value);
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // NMITIMEN — NMI/IRQ/auto-joypad enable
+    // ------------------------------------------------------------
+    if (addr == 0x4200) {
+        m_nmiEnabled = (value >> 7) & 1;
         return;
     }
 

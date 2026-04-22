@@ -659,12 +659,38 @@ void CPU::reset(const Bus& bus, uint16_t resetVector) {
     m_bytes.clear();
 }
 
+void CPU::triggerNmi(Bus& bus) {
+    m_waiting = false;
+    push8(bus, m_sp, m_bank);
+    push16(bus, m_sp, m_pc);
+    push8(bus, m_sp, m_p);
+    m_p |= FLAG_IRQ;
+    m_p &= ~FLAG_DECIMAL;
+    m_pc = busRead16(bus, 0x00, 0xFFEA);
+    m_bank = 0x00;
+    m_cycles += 7;
+}
+
+void CPU::triggerIrq(Bus& bus) {
+    if (m_p & FLAG_IRQ) return;
+    m_waiting = false;
+    push8(bus, m_sp, m_bank);
+    push16(bus, m_sp, m_pc);
+    push8(bus, m_sp, m_p);
+    m_p |= FLAG_IRQ;
+    m_p &= ~FLAG_DECIMAL;
+    m_pc = busRead16(bus, 0x00, 0xFFEE);
+    m_bank = 0x00;
+    m_cycles += 7;
+}
+
 void CPU::step(Bus& bus) {
     if (m_stopped) {
         return;
     }
 
     if (m_waiting) {
+        m_cycles += 2;
         return;
     }
 
