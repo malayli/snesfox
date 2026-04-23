@@ -42,6 +42,12 @@ public:
     const uint8_t*  oam()   const { return m_oam.data(); }
     const uint16_t* cgram() const { return m_cgram.data(); }
 
+    // -------------------------------------------------------
+    // Rendering — called by Bus::stepPeripherals each scanline
+    // -------------------------------------------------------
+    void renderScanline(int line);
+    const uint32_t* framebuffer() const { return m_framebuffer.data(); }
+
 private:
     // -------------------------------------------------------
     // Memory
@@ -74,6 +80,7 @@ private:
     // -------------------------------------------------------
     uint8_t m_bgMode      = 0;
     bool    m_bg3Priority = false;
+    uint8_t m_bgTileSize  = 0; // bits 3:0 → BG1/2/3/4 tile size (0=8×8, 1=16×16)
     uint8_t m_mosaic      = 0;
 
     // -------------------------------------------------------
@@ -147,4 +154,25 @@ private:
     void     vramPrefetch()         const;
     void     writeOam(uint8_t value);
     uint8_t  readOam()              const;
+
+    // -------------------------------------------------------
+    // Rendering helpers
+    // -------------------------------------------------------
+    struct LayerPixel {
+        uint8_t cgramIdx = 0;  // 0 = transparent
+        uint8_t priority = 0;  // tile priority bit (0 or 1)
+    };
+
+    std::array<uint32_t, 256 * 224> m_framebuffer{};
+
+    void     renderBg(int bg, int bpp, int line, LayerPixel* out) const;
+    uint16_t tilemapEntry(int bg, int tileCol, int tileRow) const;
+    uint16_t chrBase(int bg) const;
+    uint8_t  getPixel(int bpp, uint16_t base, uint16_t tileNum, int row, int col) const;
+    uint32_t cgramToArgb(uint16_t bgr555) const;
+    uint32_t compositePixel(int x,
+                             const LayerPixel* bg0,
+                             const LayerPixel* bg1,
+                             const LayerPixel* bg2,
+                             const LayerPixel* bg3) const;
 };

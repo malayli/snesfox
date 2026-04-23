@@ -64,6 +64,14 @@ bool Bus::stepPeripherals(uint64_t totalCycles) {
     }
     m_hCounter = static_cast<uint16_t>((m_cycleAccum * H_TOTAL) / CYCLES_PER_SCANLINE);
 
+    // Render completed active scanline into PPU framebuffer
+    {
+        const bool newScanline = (m_vCounter != prevV);
+        if (newScanline && prevV < VBLANK_START) {
+            m_ppu.renderScanline(static_cast<int>(prevV));
+        }
+    }
+
     // IRQ condition
     if (m_irqMode != 0) {
         const bool newScanline = (m_vCounter != prevV);
