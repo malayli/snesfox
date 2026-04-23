@@ -72,4 +72,6 @@ private:
 
     bool isLoRomArea(uint8_t bank, uint16_t addr) const;
     uint32_t loRomToFileOffset(uint8_t bank, uint16_t addr) const;
+    bool isHiRomArea(uint8_t bank, uint16_t addr) const;
+    uint32_t hiRomToFileOffset(uint8_t bank, uint16_t addr) const;
 };

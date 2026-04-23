@@ -121,6 +121,18 @@ uint32_t Bus::loRomToFileOffset(uint8_t bank, uint16_t addr) const {
          | static_cast<uint32_t>(addr - 0x8000);
 }
 
+bool Bus::isHiRomArea(uint8_t bank, uint16_t addr) const {
+    if (bank >= 0xC0)                        return true; // $C0-$FF full banks
+    if (bank >= 0x40 && bank <= 0x7D)        return true; // $40-$7D full banks (large ROMs)
+    if (addr >= 0x8000)                      return true; // $00-$3F / $80-$BF upper half
+    return false;
+}
+
+uint32_t Bus::hiRomToFileOffset(uint8_t bank, uint16_t addr) const {
+    return static_cast<uint32_t>(bank & 0x3F) * 0x10000
+         + static_cast<uint32_t>(addr);
+}
+
 uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     // ------------------------------------------------------------
     // WRAM full banks
@@ -222,14 +234,20 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     }
 
     // ------------------------------------------------------------
-    // LoROM ROM area
+    // ROM area — LoROM or HiROM
     // ------------------------------------------------------------
-    if (isLoRomArea(bank, addr)) {
-        const uint32_t offset = loRomToFileOffset(bank, addr);
-        if (offset < m_rom.size()) {
-            return m_rom[offset];
+    if (m_mapMode == RomMapping::HiROM) {
+        if (isHiRomArea(bank, addr)) {
+            const uint32_t offset = hiRomToFileOffset(bank, addr);
+            if (offset < m_rom.size()) return m_rom[offset];
+            return 0xFF;
         }
-        return 0xFF;
+    } else {
+        if (isLoRomArea(bank, addr)) {
+            const uint32_t offset = loRomToFileOffset(bank, addr);
+            if (offset < m_rom.size()) return m_rom[offset];
+            return 0xFF;
+        }
     }
 
     return 0x00;
