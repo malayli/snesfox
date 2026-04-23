@@ -1,4 +1,5 @@
 #include "ppu.hpp"
+#include <algorithm>
 
 // -----------------------------------------------------------------------
 // reset
@@ -608,84 +609,105 @@ uint32_t Ppu::compositePixel(int x,
 {
     const LayerPixel* layers[4] = { bg0, bg1, bg2, bg3 };
 
-    auto bgOk = [&](int bg, uint8_t pri) -> bool {
-        return layers[bg][x].cgramIdx != 0 && layers[bg][x].priority == pri;
+    // Winner state — cgramIdx=0 means backdrop (CGADSUB bit 0)
+    uint8_t winIdx     = 0;
+    uint8_t winCmBit   = 0x01;  // CGADSUB bit: 0=backdrop,1=OBJ,2=BG1,3=BG2,4=BG3,5=BG4
+    bool    found      = false;
+
+    auto tryBg = [&](int bg, uint8_t pri) {
+        if (found) return;
+        if (layers[bg][x].cgramIdx == 0 || layers[bg][x].priority != pri) return;
+        winIdx   = layers[bg][x].cgramIdx;
+        winCmBit = static_cast<uint8_t>(1u << (bg + 2));   // BG1=bit2…BG4=bit5
+        found    = true;
     };
-    auto bgCol = [&](int bg) -> uint32_t {
-        return cgramToArgb(m_cgram[layers[bg][x].cgramIdx]);
-    };
-    auto sprOk = [&](uint8_t pri) -> bool {
-        return spr[x].cgramIdx != 0 && spr[x].priority == pri;
-    };
-    auto sprCol = [&]() -> uint32_t {
-        return cgramToArgb(m_cgram[spr[x].cgramIdx]);
+    auto trySpr = [&](uint8_t pri) {
+        if (found) return;
+        if (spr[x].cgramIdx == 0 || spr[x].priority != pri) return;
+        winIdx   = spr[x].cgramIdx;
+        winCmBit = 0x02;    // OBJ = bit 1
+        found    = true;
     };
 
     switch (m_bgMode) {
     case 0:
-        // OBJp3 > BG1p1 > BG2p1 > OBJp2 > BG3p1 > BG4p1 >
-        // OBJp1 > BG1p0 > BG2p0 > OBJp0 > BG3p0 > BG4p0
-        if (sprOk(3))    return sprCol();
-        if (bgOk(0, 1))  return bgCol(0);
-        if (bgOk(1, 1))  return bgCol(1);
-        if (sprOk(2))    return sprCol();
-        if (bgOk(2, 1))  return bgCol(2);
-        if (bgOk(3, 1))  return bgCol(3);
-        if (sprOk(1))    return sprCol();
-        if (bgOk(0, 0))  return bgCol(0);
-        if (bgOk(1, 0))  return bgCol(1);
-        if (sprOk(0))    return sprCol();
-        if (bgOk(2, 0))  return bgCol(2);
-        if (bgOk(3, 0))  return bgCol(3);
+        trySpr(3);
+        tryBg(0,1); tryBg(1,1);
+        trySpr(2);
+        tryBg(2,1); tryBg(3,1);
+        trySpr(1);
+        tryBg(0,0); tryBg(1,0);
+        trySpr(0);
+        tryBg(2,0); tryBg(3,0);
         break;
 
     case 1:
         if (m_bg3Priority) {
-            // BG3p1 > OBJp3 > BG1p1 > BG2p1 > OBJp2 >
-            // BG1p0 > BG2p0 > OBJp1 > BG3p0 > OBJp0
-            if (bgOk(2, 1)) return bgCol(2);
-            if (sprOk(3))   return sprCol();
-            if (bgOk(0, 1)) return bgCol(0);
-            if (bgOk(1, 1)) return bgCol(1);
-            if (sprOk(2))   return sprCol();
-            if (bgOk(0, 0)) return bgCol(0);
-            if (bgOk(1, 0)) return bgCol(1);
-            if (sprOk(1))   return sprCol();
-            if (bgOk(2, 0)) return bgCol(2);
-            if (sprOk(0))   return sprCol();
+            tryBg(2,1);
+            trySpr(3);
+            tryBg(0,1); tryBg(1,1);
+            trySpr(2);
+            tryBg(0,0); tryBg(1,0);
+            trySpr(1);
+            tryBg(2,0);
+            trySpr(0);
         } else {
-            // OBJp3 > BG1p1 > BG2p1 > OBJp2 >
-            // BG1p0 > BG2p0 > OBJp1 > BG3p1 > OBJp0 > BG3p0
-            if (sprOk(3))   return sprCol();
-            if (bgOk(0, 1)) return bgCol(0);
-            if (bgOk(1, 1)) return bgCol(1);
-            if (sprOk(2))   return sprCol();
-            if (bgOk(0, 0)) return bgCol(0);
-            if (bgOk(1, 0)) return bgCol(1);
-            if (sprOk(1))   return sprCol();
-            if (bgOk(2, 1)) return bgCol(2);
-            if (sprOk(0))   return sprCol();
-            if (bgOk(2, 0)) return bgCol(2);
+            trySpr(3);
+            tryBg(0,1); tryBg(1,1);
+            trySpr(2);
+            tryBg(0,0); tryBg(1,0);
+            trySpr(1);
+            tryBg(2,1);
+            trySpr(0);
+            tryBg(2,0);
         }
         break;
 
     case 3:
-        // OBJp3 > BG1p1 > BG2p1 > OBJp2 > BG1p0 > BG2p0 > OBJp1 > OBJp0
-        if (sprOk(3))   return sprCol();
-        if (bgOk(0, 1)) return bgCol(0);
-        if (bgOk(1, 1)) return bgCol(1);
-        if (sprOk(2))   return sprCol();
-        if (bgOk(0, 0)) return bgCol(0);
-        if (bgOk(1, 0)) return bgCol(1);
-        if (sprOk(1))   return sprCol();
-        if (sprOk(0))   return sprCol();
+        trySpr(3);
+        tryBg(0,1); tryBg(1,1);
+        trySpr(2);
+        tryBg(0,0); tryBg(1,0);
+        trySpr(1);
+        trySpr(0);
         break;
 
     default:
         break;
     }
 
-    return cgramToArgb(m_cgram[0]);  // backdrop
+    // Resolve CGRAM color of winner
+    uint32_t mainColor = cgramToArgb(m_cgram[winIdx]);
+
+    // Basic fixed-color math ($2130 bits 7:6 == 00 → always apply)
+    // $2131 bit 7: subtract, bit 6: half, bits 5:0: layer enable mask
+    if ((m_cgadsub & winCmBit) && ((m_cgswsel & 0xC0) == 0x00)) {
+        const bool doSub  = (m_cgadsub >> 7) & 1;
+        const bool doHalf = (m_cgadsub >> 6) & 1;
+
+        const uint32_t subR = static_cast<uint32_t>(m_fixedR) << 3;
+        const uint32_t subG = static_cast<uint32_t>(m_fixedG) << 3;
+        const uint32_t subB = static_cast<uint32_t>(m_fixedB) << 3;
+
+        uint32_t mR = (mainColor >> 16) & 0xFF;
+        uint32_t mG = (mainColor >>  8) & 0xFF;
+        uint32_t mB =  mainColor        & 0xFF;
+
+        if (doSub) {
+            mR = (mR > subR) ? mR - subR : 0u;
+            mG = (mG > subG) ? mG - subG : 0u;
+            mB = (mB > subB) ? mB - subB : 0u;
+        } else {
+            mR = std::min(255u, mR + subR);
+            mG = std::min(255u, mG + subG);
+            mB = std::min(255u, mB + subB);
+        }
+        if (doHalf) { mR >>= 1; mG >>= 1; mB >>= 1; }
+
+        mainColor = 0xFF000000u | (mR << 16) | (mG << 8) | mB;
+    }
+
+    return mainColor;
 }
 
 // -----------------------------------------------------------------------

@@ -380,8 +380,7 @@ int runEmu(const std::string& romPath) {
         }
 
         const auto lines = makeDebugLines(headerLines, cpu, instructionLog, paused);
-        display.clear();
-        display.present(lines);
+        display.presentWithFrame(bus.ppu().framebuffer(), lines);
         display.delay(16);
     }
 
