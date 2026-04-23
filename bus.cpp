@@ -38,6 +38,7 @@ Bus::~Bus() {
 void Bus::reset() {
     m_wram.fill(0);
     m_apu.reset();
+    m_ppu.reset();
 }
 
 static constexpr uint64_t CYCLES_PER_SCANLINE = 114; // ~30000 / 262
@@ -156,7 +157,17 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     // Hardware patches / temporary bring-up hacks
     // ------------------------------------------------------------
 
-    // APU I/O ports ($2140-$2143) ignored for now
+    // PPU registers ($2100-$213F) — Bus handles the H/V latch ports inline below;
+    // everything else in the range goes to Ppu.
+    if (addr >= 0x2100 && addr <= 0x213F) {
+        // Fall through to the per-address checks below for $213C/$213D/$213E/$213F
+        // so that the Bus-owned latch state is used.  All others → Ppu.
+        if (addr != 0x213C && addr != 0x213D && addr != 0x213E && addr != 0x213F) {
+            return m_ppu.readReg(addr);
+        }
+    }
+
+    // APU I/O ports ($2140-$2143)
     if (((bank <= 0x3F) || (bank >= 0x80 && bank <= 0xBF)) &&
         addr >= 0x2140 && addr <= 0x2143) {
         return 0x00;
@@ -276,7 +287,15 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     }
 
     // ------------------------------------------------------------
-    // APU I/O ports
+    // PPU registers ($2100-$213F)
+    // ------------------------------------------------------------
+    if (addr >= 0x2100 && addr <= 0x213F) {
+        m_ppu.writeReg(addr, value);
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // APU I/O ports ($2140-$2143)
     // ------------------------------------------------------------
     if (((bank <= 0x3F) || (bank >= 0x80 && bank <= 0xBF)) &&
         addr >= 0x2140 && addr <= 0x2143) {

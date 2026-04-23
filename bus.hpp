@@ -8,6 +8,7 @@
 #include "apu_io.hpp"
 #include "dma.hpp"
 #include "header.hpp"
+#include "ppu.hpp"
 
 class Bus {
 public:
@@ -25,6 +26,8 @@ public:
     size_t sramBytes() const;
     bool takePendingIrq();
     void setJoy1(uint16_t state);
+    Ppu& ppu() { return m_ppu; }
+    const Ppu& ppu() const { return m_ppu; }
 
 private:
     const std::vector<uint8_t>& m_rom;
@@ -34,6 +37,7 @@ private:
 
     ApuIo m_apu;
     Dma   m_dma;
+    Ppu   m_ppu;
 
     RomMapping m_mapMode = RomMapping::LoROM;
     size_t m_sramBytes = 0;
