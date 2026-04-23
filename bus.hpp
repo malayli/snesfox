@@ -20,6 +20,7 @@ public:
 
     RomMapping mapMode() const;
     size_t sramBytes() const;
+    bool takePendingIrq();
 
 private:
     const std::vector<uint8_t>& m_rom;
@@ -42,6 +43,14 @@ private:
     uint64_t m_cycleAccum = 0;
     mutable bool m_hvcLatch = false;
     bool m_inVBlank = false;
+
+    // IRQ
+    uint8_t  m_irqMode    = 0;
+    uint16_t m_htime      = 0x01FF;
+    uint16_t m_vtime      = 0x01FF;
+    mutable bool m_irqFlag = false;
+    bool         m_irqPending = false;
+    bool     m_irqVMatch  = false;
 
     // Hardware multiply/divide unit
     uint8_t  m_wrmpya = 0xFF;

@@ -28,16 +28,40 @@ bool Bus::stepPeripherals(uint64_t totalCycles) {
     const uint64_t delta = totalCycles - m_lastCycles;
     m_lastCycles = totalCycles;
 
+    const uint16_t prevV = m_vCounter;
+    const uint16_t prevH = m_hCounter;
+
     m_cycleAccum += delta;
     while (m_cycleAccum >= CYCLES_PER_SCANLINE) {
         m_cycleAccum -= CYCLES_PER_SCANLINE;
         m_vCounter++;
         if (m_vCounter >= V_TOTAL) {
             m_vCounter = 0;
+            m_irqVMatch = false;
         }
     }
     m_hCounter = static_cast<uint16_t>((m_cycleAccum * H_TOTAL) / CYCLES_PER_SCANLINE);
 
+    // IRQ condition
+    if (m_irqMode != 0) {
+        const bool newScanline = (m_vCounter != prevV);
+        if (newScanline) {
+            m_irqVMatch = (m_vCounter == m_vtime);
+            if (m_irqMode == 2 && m_irqVMatch) {   // V-only: fire at scanline start
+                m_irqFlag = true;
+                m_irqPending = true;
+            }
+        }
+        const bool hEdge = (prevH < m_htime && m_hCounter >= m_htime);
+        if (hEdge) {
+            if (m_irqMode == 1)                     // H-only
+                { m_irqFlag = true; m_irqPending = true; }
+            if (m_irqMode == 3 && m_irqVMatch)     // H+V
+                { m_irqFlag = true; m_irqPending = true; }
+        }
+    }
+
+    // VBlank / NMI
     const bool nowVBlank = (m_vCounter >= VBLANK_START);
     const bool vBlankEdge = nowVBlank && !m_inVBlank;
     m_inVBlank = nowVBlank;
@@ -52,6 +76,12 @@ bool Bus::stepPeripherals(uint64_t totalCycles) {
 
     m_apu.step();
     return false;
+}
+
+bool Bus::takePendingIrq() {
+    const bool pending = m_irqPending;
+    m_irqPending = false;
+    return pending;
 }
 
 RomMapping Bus::mapMode() const { return m_mapMode; }
@@ -115,6 +145,13 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     if (addr == 0x4210) {
         const uint8_t result = (m_nmiFlag ? 0x80 : 0x00) | 0x02;
         m_nmiFlag = false;
+        return result;
+    }
+
+    // TIMEUP — IRQ flag, cleared on read
+    if (addr == 0x4211) {
+        const uint8_t result = m_irqFlag ? 0x80 : 0x00;
+        m_irqFlag = false;
         return result;
     }
 
@@ -187,8 +224,15 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     // ------------------------------------------------------------
     if (addr == 0x4200) {
         m_nmiEnabled = (value >> 7) & 1;
+        m_irqMode    = (value >> 4) & 0x3;
         return;
     }
+
+    // IRQ timer targets
+    if (addr == 0x4207) { m_htime = (m_htime & 0x0100) | value; return; }
+    if (addr == 0x4208) { m_htime = (m_htime & 0x00FF) | ((value & 0x01) << 8); return; }
+    if (addr == 0x4209) { m_vtime = (m_vtime & 0x0100) | value; return; }
+    if (addr == 0x420A) { m_vtime = (m_vtime & 0x00FF) | ((value & 0x01) << 8); return; }
 
     // ------------------------------------------------------------
     // Hardware multiply/divide unit

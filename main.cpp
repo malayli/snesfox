@@ -322,6 +322,9 @@ int runEmu(const std::string& romPath) {
                 if (bus.stepPeripherals(cpu.cycles())) {
                     cpu.triggerNmi(bus);
                 }
+                if (bus.takePendingIrq()) {
+                    cpu.triggerIrq(bus);
+                }
 
                 if (!instructionLog.empty() && instructionLog.front().rfind("> ", 0) == 0) {
                     instructionLog.front().replace(0, 2, "  ");
