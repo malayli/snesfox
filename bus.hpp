@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "apu_io.hpp"
+#include "dma.hpp"
 #include "header.hpp"
 
 class Bus {
@@ -32,6 +33,7 @@ private:
     std::array<uint8_t, 128 * 1024> m_wram{};
 
     ApuIo m_apu;
+    Dma   m_dma;
 
     RomMapping m_mapMode = RomMapping::LoROM;
     size_t m_sramBytes = 0;

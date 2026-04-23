@@ -191,6 +191,13 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     if (addr == 0x4219) return static_cast<uint8_t>(m_joy1 >> 8);
     if (addr == 0x421A || addr == 0x421B) return 0x00; // controller 2
 
+    // DMA channel registers $4300-$437F (read)
+    if (addr >= 0x4300 && addr <= 0x437F) {
+        const uint8_t ch  = static_cast<uint8_t>((addr - 0x4300) >> 4);
+        const uint8_t reg = static_cast<uint8_t>((addr - 0x4300) & 0x0F);
+        return (reg < 8) ? m_dma.readReg(ch, reg) : 0xFF;
+    }
+
     // Multiply/divide result registers
     if (addr == 0x4214) return static_cast<uint8_t>(m_rddiv & 0xFF);
     if (addr == 0x4215) return static_cast<uint8_t>(m_rddiv >> 8);
@@ -297,9 +304,18 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     }
 
     // ------------------------------------------------------------
-    // DMA trigger ignored for now
+    // DMA trigger ($420B)
     // ------------------------------------------------------------
     if (addr == 0x420B) {
+        if (value) m_dma.trigger(value, *this);
+        return;
+    }
+
+    // DMA channel registers $4300-$437F
+    if (addr >= 0x4300 && addr <= 0x437F) {
+        const uint8_t ch  = static_cast<uint8_t>((addr - 0x4300) >> 4);
+        const uint8_t reg = static_cast<uint8_t>((addr - 0x4300) & 0x0F);
+        if (reg < 8) m_dma.writeReg(ch, reg, value);
         return;
     }
 
