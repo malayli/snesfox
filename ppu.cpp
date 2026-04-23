@@ -305,9 +305,12 @@ uint8_t Ppu::readReg(uint16_t addr) const {
         return val;
     }
 
-    // --- $213E PPU1 status: version=1, OBJ overflow flags (cleared on read) ---
-    case 0x213E:
-        return 0x01;
+    // --- $213E PPU1 status: version=1 in bits 3:0; bit 6 = OBJ range overflow ---
+    case 0x213E: {
+        const uint8_t val = 0x01 | (m_objRangeOver ? 0x40 : 0x00);
+        m_objRangeOver = false;   // cleared on read
+        return val;
+    }
 
     default:
         return 0xFF;
@@ -477,6 +480,118 @@ void Ppu::renderBg(int bg, int bpp, int line, LayerPixel* out) const {
 }
 
 // -----------------------------------------------------------------------
+// renderSprites — rasterize all OBJ onto 'out[0..255]' for one scanline
+//   OAM index 0 has highest priority (overwrites higher indices).
+//   Sprite CGRAM: entries 128-255 (palette 0-7, 16 colors each).
+//   Sets m_objRangeOver if >32 sprites appear on this line.
+// -----------------------------------------------------------------------
+void Ppu::renderSprites(int line, SpritePixel* out) const {
+    for (int i = 0; i < 256; ++i) out[i] = {};
+
+    // Size table: [OBSEL bits 7:5][small=0 / large=1] = {width, height}
+    static const int kW[8][2] = {{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
+    static const int kH[8][2] = {{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{32,64},{32,32}};
+
+    const int sizeSet = (m_obsel >> 5) & 0x07;
+
+    // Sprite CHR addressing: first name table base + gap to second table
+    // base (words) = (obsel & 7) << 12
+    // gap  (words) = (((obsel >> 3) & 3) + 1) << 12
+    const uint16_t nameBase = static_cast<uint16_t>((m_obsel & 0x07) << 12);
+    const uint16_t nameGap  = static_cast<uint16_t>((static_cast<uint16_t>((m_obsel >> 3) & 0x03) + 1u) << 12);
+
+    // ---- Pass 1: collect up to 32 visible sprites ----
+    int visIdx[32];
+    int visCount = 0;
+    bool overflow = false;
+
+    for (int i = 0; i < 128; ++i) {
+        const uint8_t* s = m_oam.data() + i * 4;
+
+        // Extra OAM: 2 bits per sprite packed into bytes at offset 512
+        const uint8_t extra = m_oam[512 + (i >> 2)];
+        const int     shift = (i & 3) << 1;
+        const uint8_t eBits = (extra >> shift) & 0x03;
+
+        const bool largeSize = (eBits >> 1) & 1;
+        const int  sprH      = kH[sizeSet][largeSize ? 1 : 0];
+
+        // 8-bit Y comparison (handles wrap correctly for off-screen sprites)
+        if (static_cast<uint8_t>(static_cast<uint8_t>(line) - s[1])
+                >= static_cast<uint8_t>(sprH)) continue;
+
+        // X bounds check: 9-bit signed X
+        const int sprX = (static_cast<int>(s[0]) | (static_cast<int>(eBits & 1) << 8));
+        const int sX   = (sprX >= 256) ? (sprX - 512) : sprX;
+        const int sprW = kW[sizeSet][largeSize ? 1 : 0];
+        if (sX + sprW <= 0 || sX >= 256) continue;
+
+        if (visCount < 32) {
+            visIdx[visCount++] = i;
+        } else {
+            overflow = true;
+            break;
+        }
+    }
+    if (overflow) m_objRangeOver = true;
+
+    // ---- Pass 2: render back-to-front (high OAM index first so low index wins) ----
+    for (int v = visCount - 1; v >= 0; --v) {
+        const int     i     = visIdx[v];
+        const uint8_t* s    = m_oam.data() + i * 4;
+
+        const uint8_t extra = m_oam[512 + (i >> 2)];
+        const int     shift = (i & 3) << 1;
+        const uint8_t eBits = (extra >> shift) & 0x03;
+
+        const bool largeSize = (eBits >> 1) & 1;
+        const int  sprW      = kW[sizeSet][largeSize ? 1 : 0];
+        const int  sprH      = kH[sizeSet][largeSize ? 1 : 0];
+
+        const int rawX = static_cast<int>(s[0]) | (static_cast<int>(eBits & 1) << 8);
+        const int sprX = (rawX >= 256) ? (rawX - 512) : rawX;
+
+        const uint8_t attr    = s[3];
+        const bool    vflip   = (attr >> 7) & 1;
+        const bool    hflip   = (attr >> 6) & 1;
+        const uint8_t pri     = (attr >> 4) & 0x03;
+        const uint8_t pal     = (attr >> 1) & 0x07;
+        const bool    nameBit = attr & 0x01;
+        const uint8_t baseN   = s[2];
+
+        // Local Y within sprite (already validated to be in [0, sprH))
+        int ly = static_cast<int>(static_cast<uint8_t>(static_cast<uint8_t>(line) - s[1]));
+        if (vflip) ly = sprH - 1 - ly;
+        const int tileRow = ly >> 3;
+        const int fineY   = ly & 7;
+
+        // CHR base for this sprite
+        const uint16_t tileBase = nameBase + (nameBit ? nameGap : uint16_t(0));
+
+        for (int lxi = 0; lxi < sprW; ++lxi) {
+            const int screenX = sprX + lxi;
+            if (screenX < 0 || screenX >= 256) continue;
+
+            const int lx      = hflip ? (sprW - 1 - lxi) : lxi;
+            const int tileCol = lx >> 3;
+            const int fineX   = lx & 7;
+
+            // Tile index wraps within the 256-tile name table row of 16
+            const uint8_t tileNum = static_cast<uint8_t>(
+                baseN + static_cast<uint8_t>(tileCol) + static_cast<uint8_t>(tileRow * 16));
+
+            const uint8_t color = getPixel(4, tileBase, tileNum, fineY, fineX);
+            if (color == 0) continue;  // transparent
+
+            out[screenX] = {
+                static_cast<uint8_t>(128u + pal * 16u + color),
+                pri
+            };
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
 // compositePixel — pick the highest-priority opaque BG pixel for column x
 //   Mode 1 priority order (no sprites yet):
 //     bg3Priority set   : BG3p1 > BG1p1 > BG2p1 > BG1p0 > BG2p0 > BG3p0
@@ -485,61 +600,92 @@ void Ppu::renderBg(int bg, int bpp, int line, LayerPixel* out) const {
 //     BG1p1 > BG2p1 > BG3p1 > BG4p1 > BG1p0 > BG2p0 > BG3p0 > BG4p0
 // -----------------------------------------------------------------------
 uint32_t Ppu::compositePixel(int x,
-                              const LayerPixel* bg0,
-                              const LayerPixel* bg1,
-                              const LayerPixel* bg2,
-                              const LayerPixel* bg3) const
+                              const LayerPixel*  bg0,
+                              const LayerPixel*  bg1,
+                              const LayerPixel*  bg2,
+                              const LayerPixel*  bg3,
+                              const SpritePixel* spr) const
 {
     const LayerPixel* layers[4] = { bg0, bg1, bg2, bg3 };
 
-    auto opaque = [&](int bg, uint8_t pri) -> bool {
+    auto bgOk = [&](int bg, uint8_t pri) -> bool {
         return layers[bg][x].cgramIdx != 0 && layers[bg][x].priority == pri;
     };
-    auto color = [&](int bg) -> uint32_t {
+    auto bgCol = [&](int bg) -> uint32_t {
         return cgramToArgb(m_cgram[layers[bg][x].cgramIdx]);
+    };
+    auto sprOk = [&](uint8_t pri) -> bool {
+        return spr[x].cgramIdx != 0 && spr[x].priority == pri;
+    };
+    auto sprCol = [&]() -> uint32_t {
+        return cgramToArgb(m_cgram[spr[x].cgramIdx]);
     };
 
     switch (m_bgMode) {
     case 0:
-        // BG1p1 > BG2p1 > BG3p1 > BG4p1 > BG1p0 > BG2p0 > BG3p0 > BG4p0
-        for (int bg = 0; bg < 4; ++bg) if (opaque(bg, 1)) return color(bg);
-        for (int bg = 0; bg < 4; ++bg) if (opaque(bg, 0)) return color(bg);
+        // OBJp3 > BG1p1 > BG2p1 > OBJp2 > BG3p1 > BG4p1 >
+        // OBJp1 > BG1p0 > BG2p0 > OBJp0 > BG3p0 > BG4p0
+        if (sprOk(3))    return sprCol();
+        if (bgOk(0, 1))  return bgCol(0);
+        if (bgOk(1, 1))  return bgCol(1);
+        if (sprOk(2))    return sprCol();
+        if (bgOk(2, 1))  return bgCol(2);
+        if (bgOk(3, 1))  return bgCol(3);
+        if (sprOk(1))    return sprCol();
+        if (bgOk(0, 0))  return bgCol(0);
+        if (bgOk(1, 0))  return bgCol(1);
+        if (sprOk(0))    return sprCol();
+        if (bgOk(2, 0))  return bgCol(2);
+        if (bgOk(3, 0))  return bgCol(3);
         break;
 
     case 1:
         if (m_bg3Priority) {
-            // BG3p1 > BG1p1 > BG2p1 > BG1p0 > BG2p0 > BG3p0
-            if (opaque(2, 1)) return color(2);
-            if (opaque(0, 1)) return color(0);
-            if (opaque(1, 1)) return color(1);
-            if (opaque(0, 0)) return color(0);
-            if (opaque(1, 0)) return color(1);
-            if (opaque(2, 0)) return color(2);
+            // BG3p1 > OBJp3 > BG1p1 > BG2p1 > OBJp2 >
+            // BG1p0 > BG2p0 > OBJp1 > BG3p0 > OBJp0
+            if (bgOk(2, 1)) return bgCol(2);
+            if (sprOk(3))   return sprCol();
+            if (bgOk(0, 1)) return bgCol(0);
+            if (bgOk(1, 1)) return bgCol(1);
+            if (sprOk(2))   return sprCol();
+            if (bgOk(0, 0)) return bgCol(0);
+            if (bgOk(1, 0)) return bgCol(1);
+            if (sprOk(1))   return sprCol();
+            if (bgOk(2, 0)) return bgCol(2);
+            if (sprOk(0))   return sprCol();
         } else {
-            // BG1p1 > BG2p1 > BG1p0 > BG2p0 > BG3p1 > BG3p0
-            if (opaque(0, 1)) return color(0);
-            if (opaque(1, 1)) return color(1);
-            if (opaque(0, 0)) return color(0);
-            if (opaque(1, 0)) return color(1);
-            if (opaque(2, 1)) return color(2);
-            if (opaque(2, 0)) return color(2);
+            // OBJp3 > BG1p1 > BG2p1 > OBJp2 >
+            // BG1p0 > BG2p0 > OBJp1 > BG3p1 > OBJp0 > BG3p0
+            if (sprOk(3))   return sprCol();
+            if (bgOk(0, 1)) return bgCol(0);
+            if (bgOk(1, 1)) return bgCol(1);
+            if (sprOk(2))   return sprCol();
+            if (bgOk(0, 0)) return bgCol(0);
+            if (bgOk(1, 0)) return bgCol(1);
+            if (sprOk(1))   return sprCol();
+            if (bgOk(2, 1)) return bgCol(2);
+            if (sprOk(0))   return sprCol();
+            if (bgOk(2, 0)) return bgCol(2);
         }
         break;
 
     case 3:
-        // BG1p1 > BG2p1 > BG1p0 > BG2p0
-        if (opaque(0, 1)) return color(0);
-        if (opaque(1, 1)) return color(1);
-        if (opaque(0, 0)) return color(0);
-        if (opaque(1, 0)) return color(1);
+        // OBJp3 > BG1p1 > BG2p1 > OBJp2 > BG1p0 > BG2p0 > OBJp1 > OBJp0
+        if (sprOk(3))   return sprCol();
+        if (bgOk(0, 1)) return bgCol(0);
+        if (bgOk(1, 1)) return bgCol(1);
+        if (sprOk(2))   return sprCol();
+        if (bgOk(0, 0)) return bgCol(0);
+        if (bgOk(1, 0)) return bgCol(1);
+        if (sprOk(1))   return sprCol();
+        if (sprOk(0))   return sprCol();
         break;
 
     default:
         break;
     }
 
-    // Backdrop: CGRAM entry 0
-    return cgramToArgb(m_cgram[0]);
+    return cgramToArgb(m_cgram[0]);  // backdrop
 }
 
 // -----------------------------------------------------------------------
@@ -556,8 +702,9 @@ void Ppu::renderScanline(int line) {
         return;
     }
 
-    // Allocate per-layer pixel buffers (transparent by default)
-    LayerPixel bg0[256]{}, bg1[256]{}, bg2[256]{}, bg3[256]{};
+    // Per-layer pixel buffers (default: transparent)
+    LayerPixel  bg0[256]{}, bg1[256]{}, bg2[256]{}, bg3[256]{};
+    SpritePixel spr[256]{};
 
     switch (m_bgMode) {
     case 0:
@@ -576,13 +723,13 @@ void Ppu::renderScanline(int line) {
         if (m_tm & 0x02) renderBg(1, 4, line, bg1);
         break;
     default:
-        // Unsupported mode: output backdrop
         for (int x = 0; x < 256; ++x) row[x] = cgramToArgb(m_cgram[0]);
         return;
     }
 
-    // Composite
+    if (m_tm & 0x10) renderSprites(line, spr);  // bit 4 = OBJ on main screen
+
     for (int x = 0; x < 256; ++x) {
-        row[x] = compositePixel(x, bg0, bg1, bg2, bg3);
+        row[x] = compositePixel(x, bg0, bg1, bg2, bg3, spr);
     }
 }

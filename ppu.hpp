@@ -163,16 +163,24 @@ private:
         uint8_t priority = 0;  // tile priority bit (0 or 1)
     };
 
+    struct SpritePixel {
+        uint8_t cgramIdx = 0;  // 0 = transparent; 128 + pal*16 + color otherwise
+        uint8_t priority = 0;  // sprite priority 0-3 (from OAM attr bits 5:4)
+    };
+
     std::array<uint32_t, 256 * 224> m_framebuffer{};
+    mutable bool m_objRangeOver = false; // set when >32 sprites on a scanline
 
     void     renderBg(int bg, int bpp, int line, LayerPixel* out) const;
+    void     renderSprites(int line, SpritePixel* out) const;
     uint16_t tilemapEntry(int bg, int tileCol, int tileRow) const;
     uint16_t chrBase(int bg) const;
     uint8_t  getPixel(int bpp, uint16_t base, uint16_t tileNum, int row, int col) const;
     uint32_t cgramToArgb(uint16_t bgr555) const;
     uint32_t compositePixel(int x,
-                             const LayerPixel* bg0,
-                             const LayerPixel* bg1,
-                             const LayerPixel* bg2,
-                             const LayerPixel* bg3) const;
+                             const LayerPixel*  bg0,
+                             const LayerPixel*  bg1,
+                             const LayerPixel*  bg2,
+                             const LayerPixel*  bg3,
+                             const SpritePixel* spr) const;
 };
