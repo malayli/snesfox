@@ -23,6 +23,25 @@
 
 namespace {
 constexpr uint64_t CYCLES_PER_FRAME = 30000;
+
+uint16_t sampleJoy1() {
+    SDL_PumpEvents();
+    const uint8_t* k = SDL_GetKeyboardState(nullptr);
+    uint16_t joy = 0;
+    if (k[SDL_SCANCODE_Z])      joy |= 0x8000; // B
+    if (k[SDL_SCANCODE_A])      joy |= 0x4000; // Y
+    if (k[SDL_SCANCODE_RSHIFT]) joy |= 0x2000; // Select
+    if (k[SDL_SCANCODE_RETURN]) joy |= 0x1000; // Start
+    if (k[SDL_SCANCODE_UP])     joy |= 0x0800; // Up
+    if (k[SDL_SCANCODE_DOWN])   joy |= 0x0400; // Down
+    if (k[SDL_SCANCODE_LEFT])   joy |= 0x0200; // Left
+    if (k[SDL_SCANCODE_RIGHT])  joy |= 0x0100; // Right
+    if (k[SDL_SCANCODE_X])      joy |= 0x0080; // A
+    if (k[SDL_SCANCODE_S])      joy |= 0x0040; // X
+    if (k[SDL_SCANCODE_Q])      joy |= 0x0020; // L
+    if (k[SDL_SCANCODE_W])      joy |= 0x0010; // R
+    return joy;
+}
 constexpr int LOG_SIZE = 20;
 constexpr uint64_t DEFAULT_COV_FRAMES = 600;
 constexpr uint64_t COV_MAX_STEPS = 20000000ull;
@@ -320,6 +339,7 @@ int runEmu(const std::string& romPath) {
 
                 cpu.step(bus);
                 if (bus.stepPeripherals(cpu.cycles())) {
+                    bus.setJoy1(sampleJoy1());
                     cpu.triggerNmi(bus);
                 }
                 if (bus.takePendingIrq()) {

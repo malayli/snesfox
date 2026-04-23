@@ -78,6 +78,8 @@ bool Bus::stepPeripherals(uint64_t totalCycles) {
     return false;
 }
 
+void Bus::setJoy1(uint16_t state) { m_joy1 = state; }
+
 bool Bus::takePendingIrq() {
     const bool pending = m_irqPending;
     m_irqPending = false;
@@ -163,10 +165,10 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return status;
     }
 
-    // Joypad registers
-    if (addr == 0x4218 || addr == 0x4219) {
-        return 0x00;
-    }
+    // Auto-joypad read results
+    if (addr == 0x4218) return static_cast<uint8_t>(m_joy1 & 0xFF);
+    if (addr == 0x4219) return static_cast<uint8_t>(m_joy1 >> 8);
+    if (addr == 0x421A || addr == 0x421B) return 0x00; // controller 2
 
     // Multiply/divide result registers
     if (addr == 0x4214) return static_cast<uint8_t>(m_rddiv & 0xFF);

@@ -21,6 +21,7 @@ public:
     RomMapping mapMode() const;
     size_t sramBytes() const;
     bool takePendingIrq();
+    void setJoy1(uint16_t state);
 
 private:
     const std::vector<uint8_t>& m_rom;
@@ -51,6 +52,9 @@ private:
     mutable bool m_irqFlag = false;
     bool         m_irqPending = false;
     bool     m_irqVMatch  = false;
+
+    // Joypad
+    uint16_t m_joy1 = 0;
 
     // Hardware multiply/divide unit
     uint8_t  m_wrmpya = 0xFF;
