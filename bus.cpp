@@ -178,7 +178,7 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     // APU I/O ports ($2140-$2143)
     if (((bank <= 0x3F) || (bank >= 0x80 && bank <= 0xBF)) &&
         addr >= 0x2140 && addr <= 0x2143) {
-        return 0x00;
+        return m_apu.readPort(addr);
     }
 
     // V/H counter latch reads ($213C OPHCT, $213D OPVCT)
