@@ -1,7 +1,8 @@
 #include "bus.hpp"
+#include <fstream>
 
-Bus::Bus(const std::vector<uint8_t>& rom)
-    : m_rom(rom) {
+Bus::Bus(const std::vector<uint8_t>& rom, const std::string& savePath)
+    : m_rom(rom), m_savePath(savePath) {
     m_mapMode = HeaderParser::detect(m_rom);
 
     const size_t sramOffset = (m_mapMode == RomMapping::HiROM) ? 0xFFD8 : 0x7FD8;
@@ -11,7 +12,27 @@ Bus::Bus(const std::vector<uint8_t>& rom)
         m_sramBytes = (raw < 5) ? kSramTable[raw] : 0;
     }
 
+    if (m_sramBytes > 0) {
+        m_sram.assign(m_sramBytes, 0x00);
+        if (!m_savePath.empty()) {
+            std::ifstream f(m_savePath, std::ios::binary);
+            if (f) {
+                f.read(reinterpret_cast<char*>(m_sram.data()),
+                       static_cast<std::streamsize>(m_sram.size()));
+            }
+        }
+    }
+
     reset();
+}
+
+Bus::~Bus() {
+    if (m_sram.empty() || m_savePath.empty()) return;
+    std::ofstream f(m_savePath, std::ios::binary);
+    if (f) {
+        f.write(reinterpret_cast<const char*>(m_sram.data()),
+                static_cast<std::streamsize>(m_sram.size()));
+    }
 }
 
 void Bus::reset() {
@@ -177,6 +198,23 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
     if (addr == 0x4217) return static_cast<uint8_t>(m_rdmpy >> 8);
 
     // ------------------------------------------------------------
+    // SRAM
+    // ------------------------------------------------------------
+    if (!m_sram.empty()) {
+        if (m_mapMode == RomMapping::LoROM &&
+            bank >= 0x70 && bank <= 0x7D && addr < 0x8000) {
+            const size_t off = (static_cast<size_t>(bank - 0x70) * 0x8000 + addr) % m_sramBytes;
+            return m_sram[off];
+        }
+        if (m_mapMode == RomMapping::HiROM &&
+            ((bank >= 0x20 && bank <= 0x3F) || (bank >= 0xA0 && bank <= 0xBF)) &&
+            addr >= 0x6000 && addr < 0x8000) {
+            const size_t off = (static_cast<size_t>(bank & 0x1F) * 0x2000 + (addr - 0x6000)) % m_sramBytes;
+            return m_sram[off];
+        }
+    }
+
+    // ------------------------------------------------------------
     // LoROM ROM area
     // ------------------------------------------------------------
     if (isLoRomArea(bank, addr)) {
@@ -263,6 +301,23 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     // ------------------------------------------------------------
     if (addr == 0x420B) {
         return;
+    }
+
+    // SRAM
+    if (!m_sram.empty()) {
+        if (m_mapMode == RomMapping::LoROM &&
+            bank >= 0x70 && bank <= 0x7D && addr < 0x8000) {
+            const size_t off = (static_cast<size_t>(bank - 0x70) * 0x8000 + addr) % m_sramBytes;
+            m_sram[off] = value;
+            return;
+        }
+        if (m_mapMode == RomMapping::HiROM &&
+            ((bank >= 0x20 && bank <= 0x3F) || (bank >= 0xA0 && bank <= 0xBF)) &&
+            addr >= 0x6000 && addr < 0x8000) {
+            const size_t off = (static_cast<size_t>(bank & 0x1F) * 0x2000 + (addr - 0x6000)) % m_sramBytes;
+            m_sram[off] = value;
+            return;
+        }
     }
 
     // ROM area ignored on write

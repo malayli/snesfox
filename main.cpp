@@ -307,7 +307,12 @@ int runEmu(const std::string& romPath) {
 
     printMissingOpcodes(OPCODES);
 
-    Bus bus(data);
+    std::string savePath = romPath;
+    const auto dot = savePath.rfind('.');
+    if (dot != std::string::npos) savePath.replace(dot, std::string::npos, ".sav");
+    else savePath += ".sav";
+
+    Bus bus(data, savePath);
     bus.reset();
 
     CPU cpu;

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "apu_io.hpp"
@@ -9,7 +10,8 @@
 
 class Bus {
 public:
-    explicit Bus(const std::vector<uint8_t>& rom);
+    explicit Bus(const std::vector<uint8_t>& rom, const std::string& savePath = "");
+    ~Bus();
 
     void reset();
     // Returns true when VBlank starts and NMI should be delivered
@@ -55,6 +57,10 @@ private:
 
     // Joypad
     uint16_t m_joy1 = 0;
+
+    // SRAM
+    std::vector<uint8_t> m_sram;
+    std::string m_savePath;
 
     // Hardware multiply/divide unit
     uint8_t  m_wrmpya = 0xFF;
