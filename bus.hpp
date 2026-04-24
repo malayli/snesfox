@@ -74,6 +74,9 @@ private:
     uint16_t m_rddiv  = 0;
     uint16_t m_rdmpy  = 0;
 
+    // WRAM access ports ($2180-$2183)
+    mutable uint32_t m_wramAddr = 0; // 17-bit address (0-0x1FFFF)
+
     bool isLoRomArea(uint8_t bank, uint16_t addr) const;
     uint32_t loRomToFileOffset(uint8_t bank, uint16_t addr) const;
     bool isHiRomArea(uint8_t bank, uint16_t addr) const;

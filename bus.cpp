@@ -37,6 +37,7 @@ Bus::~Bus() {
 
 void Bus::reset() {
     m_wram.fill(0);
+    m_wramAddr = 0;
     m_apu.reset();
     m_ppu.reset();
 }
@@ -181,6 +182,13 @@ uint8_t Bus::read(uint8_t bank, uint16_t addr) const {
         return m_apu.readPort(addr);
     }
 
+    // WRAM data port ($2180 WMDATA) — read with auto-increment
+    if (addr == 0x2180) {
+        const uint8_t val = m_wram[m_wramAddr & 0x1FFFF];
+        m_wramAddr = (m_wramAddr + 1) & 0x1FFFF;
+        return val;
+    }
+
     // V/H counter latch reads ($213C OPHCT, $213D OPVCT)
     if (addr == 0x213C) {
         const uint8_t result = m_hvcLatch ? static_cast<uint8_t>(m_hCounter >> 8) : static_cast<uint8_t>(m_hCounter & 0xFF);
@@ -310,6 +318,18 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
         m_apu.writePort(addr, value);
         return;
     }
+
+    // ------------------------------------------------------------
+    // WRAM access ports ($2180-$2183)
+    // ------------------------------------------------------------
+    if (addr == 0x2180) {                          // WMDATA — write + auto-increment
+        m_wram[m_wramAddr & 0x1FFFF] = value;
+        m_wramAddr = (m_wramAddr + 1) & 0x1FFFF;
+        return;
+    }
+    if (addr == 0x2181) { m_wramAddr = (m_wramAddr & 0x1FF00) | value;                          return; }
+    if (addr == 0x2182) { m_wramAddr = (m_wramAddr & 0x100FF) | (static_cast<uint32_t>(value) << 8); return; }
+    if (addr == 0x2183) { m_wramAddr = (m_wramAddr & 0x0FFFF) | ((value & 0x01) << 16);         return; }
 
     // ------------------------------------------------------------
     // NMITIMEN — NMI/IRQ/auto-joypad enable
