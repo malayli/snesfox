@@ -51,8 +51,9 @@ void Ppu::reset() {
     m_cgswsel = m_cgadsub = 0;
     m_fixedR = m_fixedG = m_fixedB = 0;
 
-    m_setini  = 0;
-    m_diagDone = false;
+    m_setini     = 0;
+    m_diagDone   = false;
+    m_vramWrites = 0;
 }
 
 // -----------------------------------------------------------------------
@@ -178,7 +179,7 @@ void Ppu::writeReg(uint16_t addr, uint8_t value) {
     case 0x2118: {
         const uint16_t a = m_vramAddr & 0x7FFF;
         m_vram[a] = (m_vram[a] & 0xFF00) | value;
-        if ((m_vmain & 0x80) == 0) m_vramAddr += vramStep();
+        if ((m_vmain & 0x80) == 0) { m_vramAddr += vramStep(); ++m_vramWrites; }
         break;
     }
 
@@ -186,7 +187,7 @@ void Ppu::writeReg(uint16_t addr, uint8_t value) {
     case 0x2119: {
         const uint16_t a = m_vramAddr & 0x7FFF;
         m_vram[a] = (m_vram[a] & 0x00FF) | (static_cast<uint16_t>(value) << 8);
-        if ((m_vmain & 0x80) != 0) m_vramAddr += vramStep();
+        if ((m_vmain & 0x80) != 0) { m_vramAddr += vramStep(); ++m_vramWrites; }
         break;
     }
 

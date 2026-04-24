@@ -177,7 +177,8 @@ std::vector<std::string> makeDebugLines(
         std::ostringstream oss;
         oss << "FBlank:" << (ppu.forcedBlank() ? "ON " : "off")
             << " Bri:" << static_cast<int>(ppu.brightness())
-            << " Mode:" << static_cast<int>(ppu.bgMode());
+            << " Mode:" << static_cast<int>(ppu.bgMode())
+            << " VWr:" << std::dec << ppu.vramWrites();
         lines.push_back(oss.str());
     }
     {

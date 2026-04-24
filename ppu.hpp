@@ -37,6 +37,7 @@ public:
     uint8_t  wh(int n)       const { return m_wh[n]; }
     uint8_t  wbglog()        const { return m_wbglog; }
     uint8_t  wobjlog()       const { return m_wobjlog; }
+    uint32_t vramWrites()   const { return m_vramWrites; }
 
     const uint16_t* vram()  const { return m_vram.data(); }
     const uint8_t*  oam()   const { return m_oam.data(); }
@@ -171,6 +172,7 @@ private:
     std::array<uint32_t, 256 * 224> m_framebuffer{};
     mutable bool m_objRangeOver = false; // set when >32 sprites on a scanline
     bool         m_diagDone     = false; // one-shot first-active-frame diagnostic
+    uint32_t     m_vramWrites   = 0;    // total VRAM word writes (incremented per $2118/$2119 pair)
 
     void     renderBg(int bg, int bpp, int line, LayerPixel* out) const;
     void     renderSprites(int line, SpritePixel* out) const;
