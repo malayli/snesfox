@@ -203,15 +203,34 @@ std::vector<std::string> makeDebugLines(
     for (int i = 0; i < 4; ++i) {
         lines.push_back("  [" + std::to_string(i) + "] " + fmtBgr(ppu.cgram()[i]));
     }
-    // First 4 VRAM words
+    // BG1 scroll
     {
         std::ostringstream oss;
-        oss << "VRAM[0..3]:";
-        for (int i = 0; i < 4; ++i) {
-            oss << " " << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
-                << ppu.vram()[i];
-        }
+        oss << "BG1 H:" << std::dec << ppu.bgHOFS(0)
+            << " V:" << ppu.bgVOFS(0);
         lines.push_back(oss.str());
+    }
+    // VRAM at BG1 CHR base and tilemap base (computed from NBA/SC)
+    {
+        const uint16_t chrBase = static_cast<uint16_t>((ppu.bgNBA12() & 0x0F) * 0x1000);
+        const uint16_t tmBase  = static_cast<uint16_t>((ppu.bgSC(0) >> 2) * 0x400);
+        const uint16_t* vr = ppu.vram();
+        {
+            std::ostringstream oss;
+            oss << "CHR@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << chrBase << ":";
+            for (int i = 0; i < 4; ++i)
+                oss << " " << std::setw(4) << vr[(chrBase + i) & 0x7FFF];
+            lines.push_back(oss.str());
+        }
+        {
+            std::ostringstream oss;
+            oss << "TM@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << tmBase << ":";
+            for (int i = 0; i < 4; ++i)
+                oss << " " << std::setw(4) << vr[(tmBase + i) & 0x7FFF];
+            lines.push_back(oss.str());
+        }
     }
 
     lines.push_back("");
