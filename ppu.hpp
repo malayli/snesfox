@@ -176,6 +176,10 @@ private:
 
     void     renderBg(int bg, int bpp, int line, LayerPixel* out) const;
     void     renderSprites(int line, SpritePixel* out) const;
+    void     applyWindowMask(int line,
+                              LayerPixel* bg0, LayerPixel* bg1,
+                              LayerPixel* bg2, LayerPixel* bg3,
+                              SpritePixel* spr, bool mainScreen) const;
     uint16_t tilemapEntry(int bg, int tileCol, int tileRow) const;
     uint16_t chrBase(int bg) const;
     uint8_t  getPixel(int bpp, uint16_t base, uint16_t tileNum, int row, int col) const;
@@ -186,4 +190,7 @@ private:
                              const LayerPixel*  bg2,
                              const LayerPixel*  bg3,
                              const SpritePixel* spr) const;
+    // Window helpers
+    bool windowMaskBg(int x, int bg) const;
+    bool windowMaskObj(int x) const;
 };

@@ -199,16 +199,21 @@ std::vector<std::string> makeDebugLines(
             << " " << std::setw(2) << static_cast<int>(ppu.bgNBA34());
         lines.push_back(oss.str());
     }
-    // CGRAM[0..3] — backdrop + first palette entries
-    lines.push_back("PAL:");
-    for (int i = 0; i < 4; ++i) {
-        lines.push_back("  [" + std::to_string(i) + "] " + fmtBgr(ppu.cgram()[i]));
-    }
     // BG1 scroll
     {
         std::ostringstream oss;
         oss << "BG1 H:" << std::dec << ppu.bgHOFS(0)
             << " V:" << ppu.bgVOFS(0);
+        lines.push_back(oss.str());
+    }
+    // CGRAM palette 0 (entries 0-15) — 2 per line
+    lines.push_back("PAL0:");
+    for (int i = 0; i < 16; i += 2) {
+        std::ostringstream oss;
+        oss << " [" << std::setw(2) << std::setfill('0') << i << "]"
+            << fmtBgr(ppu.cgram()[i])
+            << " [" << std::setw(2) << (i+1) << "]"
+            << fmtBgr(ppu.cgram()[i+1]);
         lines.push_back(oss.str());
     }
     // VRAM at BG1 CHR base and tilemap base (computed from NBA/SC)
@@ -220,7 +225,7 @@ std::vector<std::string> makeDebugLines(
             std::ostringstream oss;
             oss << "CHR@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
                 << chrBase << ":";
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 8; ++i)
                 oss << " " << std::setw(4) << vr[(chrBase + i) & 0x7FFF];
             lines.push_back(oss.str());
         }
@@ -228,7 +233,7 @@ std::vector<std::string> makeDebugLines(
             std::ostringstream oss;
             oss << "TM@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
                 << tmBase << ":";
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 8; ++i)
                 oss << " " << std::setw(4) << vr[(tmBase + i) & 0x7FFF];
             lines.push_back(oss.str());
         }

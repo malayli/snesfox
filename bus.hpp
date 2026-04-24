@@ -77,6 +77,9 @@ private:
     // WRAM access ports ($2180-$2183)
     mutable uint32_t m_wramAddr = 0; // 17-bit address (0-0x1FFFF)
 
+    // DMA diagnostic
+    uint8_t m_dmaTraceCount = 0;
+
     bool isLoRomArea(uint8_t bank, uint16_t addr) const;
     uint32_t loRomToFileOffset(uint8_t bank, uint16_t addr) const;
     bool isHiRomArea(uint8_t bank, uint16_t addr) const;

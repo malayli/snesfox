@@ -1,4 +1,5 @@
 #include "bus.hpp"
+#include <cstdio>
 #include <fstream>
 
 Bus::Bus(const std::vector<uint8_t>& rom, const std::string& savePath)
@@ -372,7 +373,31 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
     // DMA trigger ($420B)
     // ------------------------------------------------------------
     if (addr == 0x420B) {
-        if (value) m_dma.trigger(value, *this);
+        if (value) {
+            // One-time trace of each unique $420B call (up to 16 calls total)
+            if (m_dmaTraceCount < 16) {
+                ++m_dmaTraceCount;
+                std::fprintf(stderr, "[DMA#%u] $420B=$%02X  VMAIN=$%02X  VMADD=$%04X\n",
+                    m_dmaTraceCount, value,
+                    m_ppu.readReg(0x2115),
+                    static_cast<uint16_t>(m_ppu.readReg(0x2116) |
+                                          (m_ppu.readReg(0x2117) << 8)));
+                for (int ch = 0; ch < 8; ++ch) {
+                    if (!(value & (1 << ch))) continue;
+                    const uint8_t  ctrl  = m_dma.readReg(ch, 0);
+                    const uint8_t  bbus  = m_dma.readReg(ch, 1);
+                    const uint16_t src   = static_cast<uint16_t>(
+                        m_dma.readReg(ch, 2) | (m_dma.readReg(ch, 3) << 8));
+                    const uint8_t  bank  = m_dma.readReg(ch, 4);
+                    const uint16_t len   = static_cast<uint16_t>(
+                        m_dma.readReg(ch, 5) | (m_dma.readReg(ch, 6) << 8));
+                    std::fprintf(stderr,
+                        "  ch%d ctrl=$%02X bBus=$%02X src=$%02X:%04X len=%u\n",
+                        ch, ctrl, bbus, bank, src, len);
+                }
+            }
+            m_dma.trigger(value, *this);
+        }
         return;
     }
 

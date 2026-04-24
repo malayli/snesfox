@@ -596,6 +596,88 @@ void Ppu::renderSprites(int line, SpritePixel* out) const {
 }
 
 // -----------------------------------------------------------------------
+// windowMaskBg — true if pixel x is clipped by the window mask for bg (0-3)
+//   Uses W12SEL/W34SEL enable+area bits + WH positions + WBGLOG combine logic.
+// -----------------------------------------------------------------------
+bool Ppu::windowMaskBg(int x, int bg) const {
+    const uint8_t wsel  = (bg < 2) ? m_w12sel : m_w34sel;
+    const int     shift = (bg & 1) ? 4 : 0;
+
+    const bool w1_en   = (wsel >> (shift + 1)) & 1;
+    const bool w1_area = (wsel >> (shift + 0)) & 1; // 0=clip outside, 1=clip inside
+    const bool w2_en   = (wsel >> (shift + 3)) & 1;
+    const bool w2_area = (wsel >> (shift + 2)) & 1;
+
+    if (!w1_en && !w2_en) return false;
+
+    const bool in_w1 = (m_wh[0] <= m_wh[1]) && (x >= m_wh[0] && x <= m_wh[1]);
+    const bool in_w2 = (m_wh[2] <= m_wh[3]) && (x >= m_wh[2] && x <= m_wh[3]);
+
+    // clip_wN = true means W_N says "clip this pixel"
+    const bool clip_w1 = w1_area ? in_w1 : !in_w1;
+    const bool clip_w2 = w2_area ? in_w2 : !in_w2;
+
+    if (w1_en && !w2_en) return clip_w1;
+    if (!w1_en)          return clip_w2;
+
+    // Both enabled — combine with WBGLOG (2 bits per BG)
+    switch ((m_wbglog >> (bg * 2)) & 0x03) {
+    case 0: return clip_w1 || clip_w2;    // OR
+    case 1: return clip_w1 && clip_w2;    // AND
+    case 2: return clip_w1 ^  clip_w2;    // XOR
+    default:return !(clip_w1 ^ clip_w2);  // XNOR
+    }
+}
+
+// -----------------------------------------------------------------------
+// windowMaskObj — true if pixel x is clipped for OBJ layer
+// -----------------------------------------------------------------------
+bool Ppu::windowMaskObj(int x) const {
+    const bool w1_en   = (m_wobjsel >> 1) & 1;
+    const bool w1_area = (m_wobjsel >> 0) & 1;
+    const bool w2_en   = (m_wobjsel >> 3) & 1;
+    const bool w2_area = (m_wobjsel >> 2) & 1;
+
+    if (!w1_en && !w2_en) return false;
+
+    const bool in_w1 = (m_wh[0] <= m_wh[1]) && (x >= m_wh[0] && x <= m_wh[1]);
+    const bool in_w2 = (m_wh[2] <= m_wh[3]) && (x >= m_wh[2] && x <= m_wh[3]);
+
+    const bool clip_w1 = w1_area ? in_w1 : !in_w1;
+    const bool clip_w2 = w2_area ? in_w2 : !in_w2;
+
+    if (w1_en && !w2_en) return clip_w1;
+    if (!w1_en)          return clip_w2;
+
+    switch (m_wobjlog & 0x03) { // bits 1:0 = OBJ logic
+    case 0: return clip_w1 || clip_w2;
+    case 1: return clip_w1 && clip_w2;
+    case 2: return clip_w1 ^  clip_w2;
+    default:return !(clip_w1 ^ clip_w2);
+    }
+}
+
+// -----------------------------------------------------------------------
+// applyWindowMask — clip layers by TMW (main) or TSW (sub) window masks
+// -----------------------------------------------------------------------
+void Ppu::applyWindowMask(int /*line*/,
+                           LayerPixel* bg0, LayerPixel* bg1,
+                           LayerPixel* bg2, LayerPixel* bg3,
+                           SpritePixel* spr, bool mainScreen) const
+{
+    const uint8_t mask = mainScreen ? m_tmw : m_tsw;
+    if (!mask) return;
+
+    for (int x = 0; x < 256; ++x) {
+        if ((mask & 0x01) && bg0[x].cgramIdx && windowMaskBg(x, 0)) bg0[x] = {0, 0};
+        if ((mask & 0x02) && bg1[x].cgramIdx && windowMaskBg(x, 1)) bg1[x] = {0, 0};
+        if ((mask & 0x04) && bg2[x].cgramIdx && windowMaskBg(x, 2)) bg2[x] = {0, 0};
+        if ((mask & 0x08) && bg3[x].cgramIdx && windowMaskBg(x, 3)) bg3[x] = {0, 0};
+        if ((mask & 0x10) && spr[x].cgramIdx  && windowMaskObj(x))  spr[x]  = {0, 0};
+    }
+}
+
+// -----------------------------------------------------------------------
 // compositePixel — pick the highest-priority opaque BG pixel for column x
 //   Mode 1 priority order (no sprites yet):
 //     bg3Priority set   : BG3p1 > BG1p1 > BG2p1 > BG1p0 > BG2p0 > BG3p0
@@ -666,11 +748,31 @@ uint32_t Ppu::compositePixel(int x,
         }
         break;
 
+    // Modes 2/4/5/6 — same priority table as Mode 3 (two BG layers + sprites)
+    case 2: case 4: case 5:
+        trySpr(3);
+        tryBg(0,1); tryBg(1,1);
+        trySpr(2);
+        tryBg(0,0); tryBg(1,0);
+        trySpr(1);
+        trySpr(0);
+        break;
+
     case 3:
         trySpr(3);
         tryBg(0,1); tryBg(1,1);
         trySpr(2);
         tryBg(0,0); tryBg(1,0);
+        trySpr(1);
+        trySpr(0);
+        break;
+
+    // Mode 6: single BG layer
+    case 6:
+        trySpr(3);
+        tryBg(0,1);
+        trySpr(2);
+        tryBg(0,0);
         trySpr(1);
         trySpr(0);
         break;
@@ -682,9 +784,14 @@ uint32_t Ppu::compositePixel(int x,
     // Resolve CGRAM color of winner
     uint32_t mainColor = cgramToArgb(m_cgram[winIdx]);
 
-    // Basic fixed-color math ($2130 bits 7:6 == 00 → always apply)
-    // $2131 bit 7: subtract, bit 6: half, bits 5:0: layer enable mask
-    if ((m_cgadsub & winCmBit) && ((m_cgswsel & 0xC0) == 0x00)) {
+    // GFX-07: Fixed-color math
+    // Apply when: cgadsub enables this layer AND cgswsel says to apply
+    // cgswsel bits 7:6: 00=always, 01=inside window, 10=outside window, 11=never
+    const uint8_t cmWhen = (m_cgswsel >> 6) & 0x03;
+    const bool doColorMath = (m_cgadsub & winCmBit) && (cmWhen != 3);
+    // For window-conditional modes (01/10) we approximate as "always" until
+    // sub-screen window logic is fully implemented.
+    if (doColorMath) {
         const bool doSub  = (m_cgadsub >> 7) & 1;
         const bool doHalf = (m_cgadsub >> 6) & 1;
 
@@ -730,17 +837,33 @@ void Ppu::renderScanline(int line) {
     // One-shot diagnostic: print PPU state on the very first active scanline
     if (!m_diagDone && line == 0) {
         m_diagDone = true;
+        // Compute BG1 CHR base (words) and tilemap base (words)
+        const uint16_t chrB = static_cast<uint16_t>((m_bgNBA[0] & 0x0F) * 0x1000);
+        const uint16_t tmB  = static_cast<uint16_t>((m_bgSC[0] >> 2) * 0x400);
         std::fprintf(stderr,
             "[PPU diag] First active frame:\n"
-            "  bgMode=%u  tm=$%02X  bg3pri=%u\n"
+            "  bgMode=%u  tm=$%02X  ts=$%02X  bg3pri=%u  vramWrites=%u\n"
             "  bgSC=%02X %02X %02X %02X  bgNBA=%02X %02X\n"
-            "  CGRAM[0]=%04X [1]=%04X [2]=%04X [3]=%04X\n"
-            "  VRAM[0]=%04X [1]=%04X [2]=%04X [3]=%04X\n",
-            m_bgMode, m_tm, (unsigned)m_bg3Priority,
+            "  BG1 HOFS=%u VOFS=%u\n"
+            "  CGRAM[0..7]=%04X %04X %04X %04X %04X %04X %04X %04X\n"
+            "  CHR@%04X: %04X %04X %04X %04X %04X %04X %04X %04X\n"
+            "  TM@%04X:  %04X %04X %04X %04X %04X %04X %04X %04X\n",
+            m_bgMode, m_tm, m_ts, (unsigned)m_bg3Priority, m_vramWrites,
             m_bgSC[0], m_bgSC[1], m_bgSC[2], m_bgSC[3],
             m_bgNBA[0], m_bgNBA[1],
+            (unsigned)m_bgHOFS[0], (unsigned)m_bgVOFS[0],
             m_cgram[0], m_cgram[1], m_cgram[2], m_cgram[3],
-            m_vram[0],  m_vram[1],  m_vram[2],  m_vram[3]);
+            m_cgram[4], m_cgram[5], m_cgram[6], m_cgram[7],
+            chrB,
+            m_vram[(chrB+0)&0x7FFF], m_vram[(chrB+1)&0x7FFF],
+            m_vram[(chrB+2)&0x7FFF], m_vram[(chrB+3)&0x7FFF],
+            m_vram[(chrB+4)&0x7FFF], m_vram[(chrB+5)&0x7FFF],
+            m_vram[(chrB+6)&0x7FFF], m_vram[(chrB+7)&0x7FFF],
+            tmB,
+            m_vram[(tmB+0)&0x7FFF], m_vram[(tmB+1)&0x7FFF],
+            m_vram[(tmB+2)&0x7FFF], m_vram[(tmB+3)&0x7FFF],
+            m_vram[(tmB+4)&0x7FFF], m_vram[(tmB+5)&0x7FFF],
+            m_vram[(tmB+6)&0x7FFF], m_vram[(tmB+7)&0x7FFF]);
     }
 
     // Per-layer pixel buffers (default: transparent)
@@ -759,16 +882,34 @@ void Ppu::renderScanline(int line) {
         if (m_tm & 0x02) renderBg(1, 4, line, bg1);
         if (m_tm & 0x04) renderBg(2, 2, line, bg2);
         break;
+    case 2:
+        if (m_tm & 0x01) renderBg(0, 4, line, bg0);
+        if (m_tm & 0x02) renderBg(1, 4, line, bg1);
+        break;
     case 3:
         if (m_tm & 0x01) renderBg(0, 8, line, bg0);
         if (m_tm & 0x02) renderBg(1, 4, line, bg1);
         break;
-    default:
+    case 4:
+        if (m_tm & 0x01) renderBg(0, 8, line, bg0);
+        if (m_tm & 0x02) renderBg(1, 2, line, bg1);
+        break;
+    case 5:
+        if (m_tm & 0x01) renderBg(0, 4, line, bg0);
+        if (m_tm & 0x02) renderBg(1, 2, line, bg1);
+        break;
+    case 6:
+        if (m_tm & 0x01) renderBg(0, 4, line, bg0);
+        break;
+    default:  // Mode 7 — not yet implemented, show backdrop
         for (int x = 0; x < 256; ++x) row[x] = cgramToArgb(m_cgram[0]);
         return;
     }
 
     if (m_tm & 0x10) renderSprites(line, spr);  // bit 4 = OBJ on main screen
+
+    // Apply main-screen window masking (GFX-06)
+    applyWindowMask(line, bg0, bg1, bg2, bg3, spr, true);
 
     for (int x = 0; x < 256; ++x) {
         row[x] = compositePixel(x, bg0, bg1, bg2, bg3, spr);
