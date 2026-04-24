@@ -196,11 +196,21 @@ std::vector<std::string> makeDebugLines(
                 << " V:" << ppu.bgVOFS(0);
             lines.push_back(oss.str());
         }
-        // VRAM@0000 (in case DMA went to wrong address)
+        // First non-zero VRAM word (scan entire VRAM to find where data landed)
         {
+            uint16_t firstNZ = 0xFFFF;
+            for (uint16_t i = 0; i < 0x8000; ++i) {
+                if (vr[i]) { firstNZ = i; break; }
+            }
             std::ostringstream oss;
-            oss << "V@0000:" << std::uppercase << std::hex << std::setfill('0');
-            for (int i = 0; i < 4; ++i) oss << " " << std::setw(4) << vr[i];
+            oss << "VMADD:" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << ppu.vramAddr();
+            if (firstNZ != 0xFFFF) {
+                oss << " NZ@" << std::setw(4) << firstNZ
+                    << "=" << std::setw(4) << vr[firstNZ];
+            } else {
+                oss << " VRAM=all-zero!";
+            }
             lines.push_back(oss.str());
         }
         {

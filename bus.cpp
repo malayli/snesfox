@@ -377,7 +377,6 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
             // One-time trace of each unique $420B call (up to 16 calls total)
             if (m_dmaTraceCount < 16) {
                 ++m_dmaTraceCount;
-                // Read real PPU state (vmain/vramAddr are internal registers, not readable via readReg)
                 std::fprintf(stderr, "[DMA#%u] $420B=$%02X  VMAIN=$%02X  VMADD=$%04X  VWr=%u\n",
                     m_dmaTraceCount, value,
                     m_ppu.vmain(), m_ppu.vramAddr(), m_ppu.vramWrites());
@@ -390,16 +389,26 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
                     const uint8_t  bank  = m_dma.readReg(ch, 4);
                     const uint16_t len   = static_cast<uint16_t>(
                         m_dma.readReg(ch, 5) | (m_dma.readReg(ch, 6) << 8));
+                    // Sample the first 8 source bytes so we can see what the DMA actually reads
+                    uint8_t s[8];
+                    for (int i = 0; i < 8; ++i)
+                        s[i] = read(bank, static_cast<uint16_t>(src + i));
                     std::fprintf(stderr,
-                        "  ch%d ctrl=$%02X bBus=$%02X src=$%02X:%04X len=%u\n",
-                        ch, ctrl, bbus, bank, src, len);
+                        "  ch%d ctrl=$%02X bBus=$%02X src=$%02X:%04X len=%u"
+                        "  srcBytes[0..7]=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+                        ch, ctrl, bbus, bank, src, len,
+                        s[0],s[1],s[2],s[3],s[4],s[5],s[6],s[7]);
                 }
                 m_dma.trigger(value, *this);
-                // Post-DMA: dump VRAM at the most likely addresses
+                // Post-DMA VRAM snapshot at key addresses + first non-zero word
                 const uint16_t* vr = m_ppu.vram();
+                uint16_t firstNZ = 0xFFFF;
+                for (uint16_t i = 0; i < 0x8000; ++i) {
+                    if (vr[i]) { firstNZ = i; break; }
+                }
                 std::fprintf(stderr,
-                    "  post-DMA VWr=%u  VRAM@0000=%04X %04X  @2000=%04X %04X  @6800=%04X %04X\n",
-                    m_ppu.vramWrites(),
+                    "  post-DMA VWr=%u  firstNZ@%04X  @0000=%04X %04X  @2000=%04X %04X  @6800=%04X %04X\n",
+                    m_ppu.vramWrites(), firstNZ,
                     vr[0x0000], vr[0x0001],
                     vr[0x2000], vr[0x2001],
                     vr[0x6800], vr[0x6801]);
