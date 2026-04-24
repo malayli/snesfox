@@ -1,5 +1,6 @@
 #include "ppu.hpp"
 #include <algorithm>
+#include <cstdio>
 
 // -----------------------------------------------------------------------
 // reset
@@ -50,7 +51,8 @@ void Ppu::reset() {
     m_cgswsel = m_cgadsub = 0;
     m_fixedR = m_fixedG = m_fixedB = 0;
 
-    m_setini = 0;
+    m_setini  = 0;
+    m_diagDone = false;
 }
 
 // -----------------------------------------------------------------------
@@ -722,6 +724,22 @@ void Ppu::renderScanline(int line) {
     if (m_forcedBlank) {
         for (int x = 0; x < 256; ++x) row[x] = 0xFF000000u;
         return;
+    }
+
+    // One-shot diagnostic: print PPU state on the very first active scanline
+    if (!m_diagDone && line == 0) {
+        m_diagDone = true;
+        std::fprintf(stderr,
+            "[PPU diag] First active frame:\n"
+            "  bgMode=%u  tm=$%02X  bg3pri=%u\n"
+            "  bgSC=%02X %02X %02X %02X  bgNBA=%02X %02X\n"
+            "  CGRAM[0]=%04X [1]=%04X [2]=%04X [3]=%04X\n"
+            "  VRAM[0]=%04X [1]=%04X [2]=%04X [3]=%04X\n",
+            m_bgMode, m_tm, (unsigned)m_bg3Priority,
+            m_bgSC[0], m_bgSC[1], m_bgSC[2], m_bgSC[3],
+            m_bgNBA[0], m_bgNBA[1],
+            m_cgram[0], m_cgram[1], m_cgram[2], m_cgram[3],
+            m_vram[0],  m_vram[1],  m_vram[2],  m_vram[3]);
     }
 
     // Per-layer pixel buffers (default: transparent)

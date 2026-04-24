@@ -170,6 +170,7 @@ private:
 
     std::array<uint32_t, 256 * 224> m_framebuffer{};
     mutable bool m_objRangeOver = false; // set when >32 sprites on a scanline
+    bool         m_diagDone     = false; // one-shot first-active-frame diagnostic
 
     void     renderBg(int bg, int bpp, int line, LayerPixel* out) const;
     void     renderSprites(int line, SpritePixel* out) const;
