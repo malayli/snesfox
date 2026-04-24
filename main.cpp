@@ -130,9 +130,22 @@ std::string formatDisasmLine(uint32_t pc24, const CPU& cpu, bool isCurrent = fal
     return oss.str();
 }
 
+// Format a BGR555 word as a small RGB triplet for display
+std::string fmtBgr(uint16_t bgr) {
+    const int r = (bgr & 0x1F) << 3;
+    const int g = ((bgr >> 5) & 0x1F) << 3;
+    const int b = ((bgr >> 10) & 0x1F) << 3;
+    std::ostringstream oss;
+    oss << std::uppercase << std::hex
+        << std::setw(4) << std::setfill('0') << bgr
+        << "(" << std::dec << r << "," << g << "," << b << ")";
+    return oss.str();
+}
+
 std::vector<std::string> makeDebugLines(
     const std::vector<std::string>& headerLines,
     const CPU& cpu,
+    const Ppu& ppu,
     const std::deque<std::string>& instructionLog,
     bool paused
 ) {
@@ -156,6 +169,51 @@ std::vector<std::string> makeDebugLines(
     lines.push_back("Y            : " + hex16(cpu.y()));
     lines.push_back("SP           : " + hex16(cpu.sp()));
     lines.push_back("Cycles       : " + std::to_string(cpu.cycles()));
+
+    // ---- PPU state ----
+    lines.push_back("");
+    lines.push_back("=== PPU State ===");
+    {
+        std::ostringstream oss;
+        oss << "FBlank:" << (ppu.forcedBlank() ? "ON " : "off")
+            << " Bri:" << static_cast<int>(ppu.brightness())
+            << " Mode:" << static_cast<int>(ppu.bgMode());
+        lines.push_back(oss.str());
+    }
+    {
+        std::ostringstream oss;
+        oss << "TM:" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+            << static_cast<int>(ppu.tm())
+            << " TS:" << std::setw(2) << static_cast<int>(ppu.ts());
+        lines.push_back(oss.str());
+    }
+    {
+        std::ostringstream oss;
+        oss << "SC " << std::uppercase << std::hex << std::setfill('0')
+            << std::setw(2) << static_cast<int>(ppu.bgSC(0)) << " "
+            << std::setw(2) << static_cast<int>(ppu.bgSC(1)) << " "
+            << std::setw(2) << static_cast<int>(ppu.bgSC(2)) << " "
+            << std::setw(2) << static_cast<int>(ppu.bgSC(3))
+            << " NBA " << std::setw(2) << static_cast<int>(ppu.bgNBA12())
+            << " " << std::setw(2) << static_cast<int>(ppu.bgNBA34());
+        lines.push_back(oss.str());
+    }
+    // CGRAM[0..3] — backdrop + first palette entries
+    lines.push_back("PAL:");
+    for (int i = 0; i < 4; ++i) {
+        lines.push_back("  [" + std::to_string(i) + "] " + fmtBgr(ppu.cgram()[i]));
+    }
+    // First 4 VRAM words
+    {
+        std::ostringstream oss;
+        oss << "VRAM[0..3]:";
+        for (int i = 0; i < 4; ++i) {
+            oss << " " << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << ppu.vram()[i];
+        }
+        lines.push_back(oss.str());
+    }
+
     lines.push_back("");
     lines.push_back("=== Instruction Log ===");
     for (const auto& line : instructionLog) {
@@ -379,7 +437,7 @@ int runEmu(const std::string& romPath) {
             }
         }
 
-        const auto lines = makeDebugLines(headerLines, cpu, instructionLog, paused);
+        const auto lines = makeDebugLines(headerLines, cpu, bus.ppu(), instructionLog, paused);
         display.presentWithFrame(bus.ppu().framebuffer(), lines);
         display.delay(16);
     }
