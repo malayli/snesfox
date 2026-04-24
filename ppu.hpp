@@ -38,6 +38,8 @@ public:
     uint8_t  wbglog()        const { return m_wbglog; }
     uint8_t  wobjlog()       const { return m_wobjlog; }
     uint32_t vramWrites()   const { return m_vramWrites; }
+    uint8_t  vmain()        const { return m_vmain; }
+    uint16_t vramAddr()     const { return m_vramAddr; }
 
     const uint16_t* vram()  const { return m_vram.data(); }
     const uint8_t*  oam()   const { return m_oam.data(); }

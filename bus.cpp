@@ -377,11 +377,10 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
             // One-time trace of each unique $420B call (up to 16 calls total)
             if (m_dmaTraceCount < 16) {
                 ++m_dmaTraceCount;
-                std::fprintf(stderr, "[DMA#%u] $420B=$%02X  VMAIN=$%02X  VMADD=$%04X\n",
+                // Read real PPU state (vmain/vramAddr are internal registers, not readable via readReg)
+                std::fprintf(stderr, "[DMA#%u] $420B=$%02X  VMAIN=$%02X  VMADD=$%04X  VWr=%u\n",
                     m_dmaTraceCount, value,
-                    m_ppu.readReg(0x2115),
-                    static_cast<uint16_t>(m_ppu.readReg(0x2116) |
-                                          (m_ppu.readReg(0x2117) << 8)));
+                    m_ppu.vmain(), m_ppu.vramAddr(), m_ppu.vramWrites());
                 for (int ch = 0; ch < 8; ++ch) {
                     if (!(value & (1 << ch))) continue;
                     const uint8_t  ctrl  = m_dma.readReg(ch, 0);
@@ -395,8 +394,18 @@ void Bus::write(uint8_t bank, uint16_t addr, uint8_t value) {
                         "  ch%d ctrl=$%02X bBus=$%02X src=$%02X:%04X len=%u\n",
                         ch, ctrl, bbus, bank, src, len);
                 }
+                m_dma.trigger(value, *this);
+                // Post-DMA: dump VRAM at the most likely addresses
+                const uint16_t* vr = m_ppu.vram();
+                std::fprintf(stderr,
+                    "  post-DMA VWr=%u  VRAM@0000=%04X %04X  @2000=%04X %04X  @6800=%04X %04X\n",
+                    m_ppu.vramWrites(),
+                    vr[0x0000], vr[0x0001],
+                    vr[0x2000], vr[0x2001],
+                    vr[0x6800], vr[0x6801]);
+            } else {
+                m_dma.trigger(value, *this);
             }
-            m_dma.trigger(value, *this);
         }
         return;
     }

@@ -173,59 +173,41 @@ std::vector<std::string> makeDebugLines(
     // ---- PPU state ----
     lines.push_back("");
     lines.push_back("=== PPU State ===");
-    {
-        std::ostringstream oss;
-        oss << "FBlank:" << (ppu.forcedBlank() ? "ON " : "off")
-            << " Bri:" << static_cast<int>(ppu.brightness())
-            << " Mode:" << static_cast<int>(ppu.bgMode())
-            << " VWr:" << std::dec << ppu.vramWrites();
-        lines.push_back(oss.str());
-    }
-    {
-        std::ostringstream oss;
-        oss << "TM:" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-            << static_cast<int>(ppu.tm())
-            << " TS:" << std::setw(2) << static_cast<int>(ppu.ts());
-        lines.push_back(oss.str());
-    }
-    {
-        std::ostringstream oss;
-        oss << "SC " << std::uppercase << std::hex << std::setfill('0')
-            << std::setw(2) << static_cast<int>(ppu.bgSC(0)) << " "
-            << std::setw(2) << static_cast<int>(ppu.bgSC(1)) << " "
-            << std::setw(2) << static_cast<int>(ppu.bgSC(2)) << " "
-            << std::setw(2) << static_cast<int>(ppu.bgSC(3))
-            << " NBA " << std::setw(2) << static_cast<int>(ppu.bgNBA12())
-            << " " << std::setw(2) << static_cast<int>(ppu.bgNBA34());
-        lines.push_back(oss.str());
-    }
-    // BG1 scroll
-    {
-        std::ostringstream oss;
-        oss << "BG1 H:" << std::dec << ppu.bgHOFS(0)
-            << " V:" << ppu.bgVOFS(0);
-        lines.push_back(oss.str());
-    }
-    // CGRAM palette 0 (entries 0-15) — 2 per line
-    lines.push_back("PAL0:");
-    for (int i = 0; i < 16; i += 2) {
-        std::ostringstream oss;
-        oss << " [" << std::setw(2) << std::setfill('0') << i << "]"
-            << fmtBgr(ppu.cgram()[i])
-            << " [" << std::setw(2) << (i+1) << "]"
-            << fmtBgr(ppu.cgram()[i+1]);
-        lines.push_back(oss.str());
-    }
-    // VRAM at BG1 CHR base and tilemap base (computed from NBA/SC)
+    // ---- Critical diagnostics first ----
     {
         const uint16_t chrBase = static_cast<uint16_t>((ppu.bgNBA12() & 0x0F) * 0x1000);
         const uint16_t tmBase  = static_cast<uint16_t>((ppu.bgSC(0) >> 2) * 0x400);
         const uint16_t* vr = ppu.vram();
         {
             std::ostringstream oss;
+            oss << "VWr:" << std::dec << ppu.vramWrites()
+                << " FB:" << (ppu.forcedBlank() ? "ON" : "off")
+                << " M:" << static_cast<int>(ppu.bgMode())
+                << " TM:" << std::uppercase << std::hex
+                << std::setw(2) << std::setfill('0') << static_cast<int>(ppu.tm());
+            lines.push_back(oss.str());
+        }
+        {
+            std::ostringstream oss;
+            oss << "SC:" << std::uppercase << std::hex << std::setfill('0')
+                << std::setw(2) << static_cast<int>(ppu.bgSC(0))
+                << " NBA:" << std::setw(2) << static_cast<int>(ppu.bgNBA12())
+                << " H:" << std::dec << ppu.bgHOFS(0)
+                << " V:" << ppu.bgVOFS(0);
+            lines.push_back(oss.str());
+        }
+        // VRAM@0000 (in case DMA went to wrong address)
+        {
+            std::ostringstream oss;
+            oss << "V@0000:" << std::uppercase << std::hex << std::setfill('0');
+            for (int i = 0; i < 4; ++i) oss << " " << std::setw(4) << vr[i];
+            lines.push_back(oss.str());
+        }
+        {
+            std::ostringstream oss;
             oss << "CHR@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
                 << chrBase << ":";
-            for (int i = 0; i < 8; ++i)
+            for (int i = 0; i < 4; ++i)
                 oss << " " << std::setw(4) << vr[(chrBase + i) & 0x7FFF];
             lines.push_back(oss.str());
         }
@@ -233,10 +215,21 @@ std::vector<std::string> makeDebugLines(
             std::ostringstream oss;
             oss << "TM@" << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
                 << tmBase << ":";
-            for (int i = 0; i < 8; ++i)
+            for (int i = 0; i < 4; ++i)
                 oss << " " << std::setw(4) << vr[(tmBase + i) & 0x7FFF];
             lines.push_back(oss.str());
         }
+    }
+    // CGRAM palette 0 (entries 0-15) — 4 per line, compact
+    lines.push_back("PAL0(idx:BGR):");
+    for (int i = 0; i < 16; i += 4) {
+        std::ostringstream oss;
+        for (int j = 0; j < 4; ++j) {
+            oss << "[" << std::dec << (i+j) << "]"
+                << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << ppu.cgram()[i+j] << " ";
+        }
+        lines.push_back(oss.str());
     }
 
     lines.push_back("");
